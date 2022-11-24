@@ -48,7 +48,7 @@ class _HZVideoPlayerProState extends State<HZVideoPlayerPro>
         ///这里需要注意的是 你的视频总长时间和播放的进度的时间有可能不相等
         if (currentSec == totalSec || currentSec == totalSec - 1) {
           videoPlayerController.seekTo(Duration.zero);
-          ///如果要实现播放完成自动播放下一条 请打开注释
+          ///如果项目有业务需要  播放完成自动播放下一条 请打开注释
           // if (widget.playEndStatus != null) {
           //   widget.playEndStatus!();
           // }
