@@ -1,6 +1,6 @@
 # flutter_short_video
 
-A new Flutter project.
+一款跨平台flutter写的短视频功能 包括 下拉刷新和上拉加载的功能 同时也包括播放完下一页的播放功能 
 
 ## Getting Started
 
