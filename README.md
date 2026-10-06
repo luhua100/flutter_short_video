@@ -2,7 +2,6 @@
 
 跨平台 Flutter 短视频信息流（抖音式竖屏滑动）实现方案。支持「关注 / 推荐」双频道、竖向全屏滑动切换、播放器复用与滑动预加载、下拉刷新 / 上拉加载更多、点赞 / 双击炸心 / 关注 / 评论 / 分享等完整交互。
 
-> 本工程为**体验优化后的重构版本**。初版 Demo 在真实客户端暴露了大量体验问题（release 包无网络权限、控制器串频道、每帧整页重建等），相关根因与修复清单见 [OPTIMIZATION.md](./OPTIMIZATION.md)。旧实现已备份在 `.workbuddy/backup_legacy/`。
 
 ## 功能特性
 
@@ -226,6 +225,3 @@ class HttpVideoRepository implements VideoFeedSource {
 
 > 采用方式二时，记得把 `feed_tab_view.dart` 中 `repository` 的类型从 `VideoRepository` 改成 `VideoFeedSource`。
 
-## 进阶路线图
-
-见 [OPTIMIZATION.md](./OPTIMIZATION.md)「后续进阶」一节，按收益排序：边播边缓存（如 `flutter_cache_manager` / 预下载）、`video_player` 升级 2.14+ 以修复首帧黑屏、起播耗时与卡顿率埋点、评论/分享接入真实业务、预加载策略按网络类型自适应。
