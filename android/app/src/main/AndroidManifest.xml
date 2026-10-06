@@ -1,5 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.flutter_short_video">
+   <!-- 网络权限必须写在 main manifest 里：debug manifest 只覆盖 debug 构建，
+        打 release 包时视频会因为缺少权限而全部加载失败。 -->
+   <uses-permission android:name="android.permission.INTERNET"/>
+   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
    <application
         android:label="flutter_short_video"
         android:name="${applicationName}"

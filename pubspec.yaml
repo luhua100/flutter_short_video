@@ -20,7 +20,9 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  sdk: '>=2.18.4 <3.0.0'
+  # 旧约束 '>=2.18.4 <3.0.0' 会把所有依赖锁死在 2022 年的版本上，
+  # 这里放开到 Dart 3，后续才能升级 video_player 等包。
+  sdk: '>=3.0.0 <4.0.0'
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -41,6 +43,8 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_lints: ^6.0.0
+  test: ^1.26.2
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
