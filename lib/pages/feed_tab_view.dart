@@ -23,6 +23,8 @@ class FeedTabView extends StatefulWidget {
     required this.active,
     required this.muted,
     required this.resumeToken,
+    this.initialIndex = 0,
+    this.initialItems = const <VideoModel>[],
     this.onToggleMute,
     this.onComment,
     this.onShare,
@@ -39,6 +41,18 @@ class FeedTabView extends StatefulWidget {
   /// 由父层在 App 回到前台时递增，用于恢复播放。
   final int resumeToken;
 
+  /// 进入信息流时定位到的视频下标。
+  /// 例如从「个人中心-收藏列表」第 6 条点进来，这里传 5（0 基）。
+  /// 默认 0：从首页信息流进入时无需传。
+  final int initialIndex;
+
+  /// 进入时已经分页加载好的视频列表（收藏列表内存里已有的那一批）。
+  /// 传入后信息流直接以这些为初始数据并定位到 [initialIndex]：
+  /// - 向上滑可回看前面的视频（数据已在内存，无需重新请求）；
+  /// - 向下滑继续分页加载更多（[VideoRepository.fetchFeed] 按 page 递增）。
+  /// 不传则走首页逻辑：从 page 0 拉取。
+  final List<VideoModel> initialItems;
+
   final ValueChanged<bool>? onToggleMute;
   final VoidCallback? onComment;
   final VoidCallback? onShare;
@@ -51,7 +65,7 @@ class FeedTabViewState extends State<FeedTabView>
     with AutomaticKeepAliveClientMixin {
   final List<VideoModel> _items = <VideoModel>[];
 
-  late final PageController _pageController = PageController();
+  late final PageController _pageController;
 
   int _currentIndex = 0;
   int _page = 0;
@@ -67,7 +81,21 @@ class FeedTabViewState extends State<FeedTabView>
   @override
   void initState() {
     super.initState();
-    unawaited(_loadFirstPage());
+    // 从收藏列表等入口进入时，PageController 要直接定位到点击的那一条。
+    _pageController = PageController(initialPage: widget.initialIndex);
+
+    if (widget.initialItems.isNotEmpty) {
+      // 用列表页已加载好的数据做种子：向上滑可回看，向下滑继续分页。
+      _items.addAll(widget.initialItems);
+      // 已加载页数 = 数据条数 / 每页条数 - 1（假设列表按整页加载）。
+      _page = (widget.initialItems.length ~/ widget.repository.pageSize) - 1;
+      if (_page < 0) _page = 0;
+      _currentIndex = widget.initialIndex.clamp(0, _items.length - 1);
+      _firstLoading = false;
+      _syncPlayback(resume: true);
+    } else {
+      unawaited(_loadFirstPage());
+    }
   }
 
   @override

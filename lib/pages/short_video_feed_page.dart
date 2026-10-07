@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../data/video_repository.dart';
 import '../player/video_player_pool.dart';
 import 'feed_tab_view.dart';
+import 'personal_center_page.dart';
 
 /// 短视频首页：顶部关注 / 推荐两个频道，下方竖向信息流。
 class ShortVideoFeedPage extends StatefulWidget {
@@ -108,9 +109,41 @@ class _ShortVideoFeedPageState extends State<ShortVideoFeedPage>
             top: 0,
             left: 0,
             right: 0,
-            child: SafeArea(bottom: false, child: _buildTabBar()),
+            child: SafeArea(bottom: false, child: _buildTopBar()),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildTopBar() {
+    return SizedBox(
+      height: 44,
+      child: Row(
+        children: <Widget>[
+          const SizedBox(width: 12),
+          _buildProfileButton(),
+          const SizedBox(width: 4),
+          Expanded(child: _buildTabBar()),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileButton() {
+    return GestureDetector(
+      onTap: _openPersonalCenter,
+      child: const CircleAvatar(
+        radius: 16,
+        backgroundImage: NetworkImage('https://picsum.photos/seed/me/100/100'),
+      ),
+    );
+  }
+
+  void _openPersonalCenter() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PersonalCenterPage(repository: _repository),
       ),
     );
   }
@@ -122,6 +155,7 @@ class _ShortVideoFeedPageState extends State<ShortVideoFeedPage>
         controller: _tabController,
         tabs: _tabs.map((String e) => Tab(text: e)).toList(),
         isScrollable: true,
+        tabAlignment: TabAlignment.center,
         indicatorColor: Colors.white,
         indicatorSize: TabBarIndicatorSize.label,
         indicatorWeight: 2.5,
