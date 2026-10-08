@@ -27,9 +27,13 @@ enum VideoLoadStatus {
 /// 2. 不持有任何 controller 监听器，进度监听交给 UI 侧的
 ///    ValueListenableBuilder，从根源上避免 dispose 后回调的崩溃与泄漏。
 class VideoPlayerEntry extends ChangeNotifier {
-  VideoPlayerEntry(this.url, {double volume = 0}) : _volume = volume;
+  VideoPlayerEntry(this.url, {double volume = 0, this.live = false})
+      : _volume = volume;
 
   final String url;
+
+  /// 是否为直播流。直播流不支持 seek，[replay] 时只 play 不回到开头。
+  bool live;
 
   VideoPlayerController? controller;
 
@@ -128,10 +132,13 @@ class VideoPlayerEntry extends ChangeNotifier {
   }
 
   /// 回到开头播放，用于切屏复用同一个 controller。
+  /// 直播流不支持 seek，只做 play。
   Future<void> replay() async {
     if (!isReady) return;
     try {
-      await controller!.seekTo(Duration.zero);
+      if (!live) {
+        await controller!.seekTo(Duration.zero);
+      }
       await controller!.play();
     } catch (_) {}
   }
@@ -190,15 +197,18 @@ class VideoPlayerPool {
   double get volume => _volume;
 
   /// 获取（或创建）url 对应的播放单元，同步返回，不阻塞首帧。
-  VideoPlayerEntry entryFor(String url) {
+  /// [live] 为 true 时标记该单元为直播流（[replay] 不再 seek）。
+  VideoPlayerEntry entryFor(String url, {bool live = false}) {
     assert(!_disposed, 'VideoPlayerPool 已释放');
     final VideoPlayerEntry? existing = _entries.remove(url);
     if (existing != null) {
+      // 复用既有单元时同步 live 标记（同一 url 可能先按点播、后按直播复用）。
+      if (existing.live != live) existing.live = live;
       _entries[url] = existing;
       return existing;
     }
     final VideoPlayerEntry entry =
-        VideoPlayerEntry(url, volume: _volume);
+        VideoPlayerEntry(url, volume: _volume, live: live);
     _entries[url] = entry;
     _enforceCapacity();
     return entry;

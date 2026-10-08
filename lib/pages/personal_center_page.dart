@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../data/video_repository.dart';
-import '../models/video_model.dart';
+import '../models/feed_item.dart';
+import '../utils/logger.dart';
 import 'favorites_feed_page.dart';
 import 'favorites_list_page.dart';
 
@@ -26,7 +27,7 @@ class PersonalCenterPage extends StatefulWidget {
 class _PersonalCenterPageState extends State<PersonalCenterPage> {
   static const String _channel = '收藏';
 
-  List<VideoModel> _favoritesPreview = <VideoModel>[];
+  List<FeedItem> _favoritesPreview = <FeedItem>[];
   bool _loading = true;
 
   @override
@@ -38,7 +39,7 @@ class _PersonalCenterPageState extends State<PersonalCenterPage> {
   Future<void> _loadPreview() async {
     try {
       // 取第一页前几条做预览，完整列表交给 FavoritesListPage 分页加载。
-      final List<VideoModel> list = await widget.repository.fetchFeed(
+      final List<FeedItem> list = await widget.repository.fetchFeed(
         channel: _channel,
         page: 0,
       );
@@ -54,6 +55,7 @@ class _PersonalCenterPageState extends State<PersonalCenterPage> {
   }
 
   void _openAllFavorites() {
+    logEvent('open_all_favorites', <String, dynamic>{'from': 'personal_center'});
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => FavoritesListPage(repository: widget.repository),
@@ -62,6 +64,17 @@ class _PersonalCenterPageState extends State<PersonalCenterPage> {
   }
 
   void _openPlayer(int index) {
+    final FeedItem? item =
+        index < _favoritesPreview.length ? _favoritesPreview[index] : null;
+    logEvent('favorite_open', <String, dynamic>{
+      if (item != null)
+        ...<String, dynamic>{
+          'item_id': item.id,
+          'type': item.type.name,
+        },
+      'index': index,
+      'from': 'personal_center_preview',
+    });
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => FavoritesFeedPage(
@@ -190,14 +203,14 @@ class _PersonalCenterPageState extends State<PersonalCenterPage> {
             ),
             itemCount: _favoritesPreview.length,
             itemBuilder: (BuildContext context, int index) {
-              final VideoModel item = _favoritesPreview[index];
+              final FeedItem item = _favoritesPreview[index];
               return GestureDetector(
                 onTap: () => _openPlayer(index),
                 child: Stack(
                   fit: StackFit.expand,
                   children: <Widget>[
                     Image.network(
-                      item.coverUrl,
+                      item.posterUrl,
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) =>
                           Container(color: Colors.white10),

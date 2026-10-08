@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../data/video_repository.dart';
-import '../models/video_model.dart';
+import '../models/feed_item.dart';
+import '../utils/logger.dart';
 import 'favorites_feed_page.dart';
 
 /// 收藏列表页：从「个人中心」点进来，展示分页加载的收藏视频网格。
@@ -25,7 +26,7 @@ class FavoritesListPage extends StatefulWidget {
 class _FavoritesListPageState extends State<FavoritesListPage> {
   static const String _channel = '收藏';
 
-  final List<VideoModel> _items = <VideoModel>[];
+  final List<FeedItem> _items = <FeedItem>[];
   final ScrollController _scrollController = ScrollController();
 
   int _page = 0;
@@ -63,7 +64,7 @@ class _FavoritesListPageState extends State<FavoritesListPage> {
 
   Future<void> _loadFirstPage() async {
     try {
-      final List<VideoModel> list = await widget.repository.fetchFeed(
+      final List<FeedItem> list = await widget.repository.fetchFeed(
         channel: _channel,
         page: 0,
       );
@@ -90,7 +91,7 @@ class _FavoritesListPageState extends State<FavoritesListPage> {
     if (_loadingMore || !_hasMore) return;
     setState(() => _loadingMore = true);
     try {
-      final List<VideoModel> list = await widget.repository.fetchFeed(
+      final List<FeedItem> list = await widget.repository.fetchFeed(
         channel: _channel,
         page: _page + 1,
       );
@@ -115,6 +116,16 @@ class _FavoritesListPageState extends State<FavoritesListPage> {
   }
 
   void _openPlayer(int index) {
+    final FeedItem? item = index < _items.length ? _items[index] : null;
+    logEvent('favorite_open', <String, dynamic>{
+      if (item != null)
+        ...<String, dynamic>{
+          'item_id': item.id,
+          'type': item.type.name,
+        },
+      'index': index,
+      'from': 'favorites_list',
+    });
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => FavoritesFeedPage(
@@ -194,21 +205,21 @@ class _FavoritesListPageState extends State<FavoritesListPage> {
               ),
             );
           }
-          final VideoModel item = _items[index];
+          final FeedItem item = _items[index];
           return _buildCell(item, index);
         },
       ),
     );
   }
 
-  Widget _buildCell(VideoModel item, int index) {
+  Widget _buildCell(FeedItem item, int index) {
     return GestureDetector(
       onTap: () => _openPlayer(index),
       child: Stack(
         fit: StackFit.expand,
         children: <Widget>[
           Image.network(
-            item.coverUrl,
+            item.posterUrl,
             fit: BoxFit.cover,
             loadingBuilder: (BuildContext context, Widget child,
                 ImageChunkEvent? progress) {

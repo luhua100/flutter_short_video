@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 
-import '../models/video_model.dart';
+import '../models/feed_item.dart';
 
-/// 视频右侧的互动操作栏。
+/// 视频/直播/图片右侧共用的互动操作栏。
 ///
 /// 这里所有元素都是无状态的展示 + 回调，交互状态由外层持有，
 /// 避免点赞一个按钮导致整屏重建。
 class VideoSideActions extends StatelessWidget {
   const VideoSideActions({
     super.key,
-    required this.video,
+    required this.item,
     required this.onLike,
     required this.onComment,
     required this.onShare,
@@ -17,7 +17,7 @@ class VideoSideActions extends StatelessWidget {
     this.spinning = false,
   });
 
-  final VideoModel video;
+  final FeedItem item;
   final VoidCallback onLike;
   final VoidCallback onComment;
   final VoidCallback onShare;
@@ -31,30 +31,30 @@ class VideoSideActions extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
         _AvatarWithFollow(
-          avatarUrl: video.authorAvatar,
-          followed: video.followed,
+          avatarUrl: item.authorAvatar,
+          followed: item.followed,
           onFollow: onFollow,
         ),
         const SizedBox(height: 16),
         _LikeButton(
-          count: video.likeCount,
-          liked: video.liked,
+          count: item.likeCount,
+          liked: item.liked,
           onTap: onLike,
         ),
         const SizedBox(height: 16),
         _ActionButton(
           icon: Icons.comment,
-          label: formatCount(video.commentCount),
+          label: formatCount(item.commentCount),
           onTap: onComment,
         ),
         const SizedBox(height: 16),
         _ActionButton(
           icon: Icons.share,
-          label: formatCount(video.shareCount),
+          label: formatCount(item.shareCount),
           onTap: onShare,
         ),
         const SizedBox(height: 16),
-        _SpinningDisc(coverUrl: video.coverUrl, spinning: spinning),
+        _SpinningDisc(coverUrl: item.coverUrl, spinning: spinning),
       ],
     );
   }

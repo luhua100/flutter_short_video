@@ -3,9 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../data/video_repository.dart';
-import '../models/video_model.dart';
+import '../models/feed_item.dart';
 import '../player/video_player_pool.dart';
+import '../utils/logger.dart';
+import '../widgets/image_feed_item.dart';
 import '../widgets/short_video_item.dart';
+import 'live_page.dart';
 
 /// 单个频道（关注 / 推荐）的信息流。
 ///
@@ -24,7 +27,7 @@ class FeedTabView extends StatefulWidget {
     required this.muted,
     required this.resumeToken,
     this.initialIndex = 0,
-    this.initialItems = const <VideoModel>[],
+    this.initialItems = const <FeedItem>[],
     this.onToggleMute,
     this.onComment,
     this.onShare,
@@ -51,7 +54,7 @@ class FeedTabView extends StatefulWidget {
   /// - 向上滑可回看前面的视频（数据已在内存，无需重新请求）；
   /// - 向下滑继续分页加载更多（[VideoRepository.fetchFeed] 按 page 递增）。
   /// 不传则走首页逻辑：从 page 0 拉取。
-  final List<VideoModel> initialItems;
+  final List<FeedItem> initialItems;
 
   final ValueChanged<bool>? onToggleMute;
   final VoidCallback? onComment;
@@ -63,7 +66,7 @@ class FeedTabView extends StatefulWidget {
 
 class FeedTabViewState extends State<FeedTabView>
     with AutomaticKeepAliveClientMixin {
-  final List<VideoModel> _items = <VideoModel>[];
+  final List<FeedItem> _items = <FeedItem>[];
 
   late final PageController _pageController;
 
@@ -125,7 +128,7 @@ class FeedTabViewState extends State<FeedTabView>
       _firstError = null;
     });
     try {
-      final List<VideoModel> list = await widget.repository.fetchFeed(
+      final List<FeedItem> list = await widget.repository.fetchFeed(
         channel: widget.channel,
         page: 0,
         salt: _salt,
@@ -158,7 +161,7 @@ class FeedTabViewState extends State<FeedTabView>
       return;
     }
     _salt++;
-    final List<VideoModel> list = await widget.repository.fetchFeed(
+    final List<FeedItem> list = await widget.repository.fetchFeed(
       channel: widget.channel,
       page: 0,
       salt: _salt,
@@ -186,7 +189,7 @@ class FeedTabViewState extends State<FeedTabView>
     if (_loadingMore || _firstLoading) return;
     setState(() => _loadingMore = true);
     try {
-      final List<VideoModel> list = await widget.repository.fetchFeed(
+      final List<FeedItem> list = await widget.repository.fetchFeed(
         channel: widget.channel,
         page: _page + 1,
         salt: _salt,
@@ -203,56 +206,90 @@ class FeedTabViewState extends State<FeedTabView>
 
   void _onPageChanged(int index) {
     setState(() => _currentIndex = index);
+    if (index >= 0 && index < _items.length) {
+      // 划到某一条即视为一次曝光，便于做完播/停留埋点。
+      logEvent('feed_item_impression', _trackParams(_items[index], index));
+    }
     _syncPlayback(resume: true);
     if (index >= _items.length - 3) {
       unawaited(_loadMore());
     }
   }
 
+  /// 构造埋点公共参数：item 维度 + 频道/下标/页码。
+  Map<String, dynamic> _trackParams(FeedItem item, int index) =>
+      <String, dynamic>{
+        'item_id': item.id,
+        'type': item.type.name,
+        'channel': widget.channel,
+        'index': index,
+        'page': _page,
+      };
+
   /// 维护播放窗口：当前屏起播，前后各预加载一屏，窗口外释放。
+  /// 图片类型没有播放器，直接跳过；直播用 play() 而非 seek 到开头的 replay()。
   void _syncPlayback({bool resume = false}) {
     if (_items.isEmpty || !widget.active) return;
     final int index = _currentIndex.clamp(0, _items.length - 1);
 
     final Set<String> keep = <String>{};
+    final List<String> preload = <String>[];
     for (int i = index - 1; i <= index + 1; i++) {
-      if (i >= 0 && i < _items.length) keep.add(_items[i].url);
+      if (i < 0 || i >= _items.length) continue;
+      final FeedItem item = _items[i];
+      if (item.isImage) continue; // 图片无播放器，不占用播放窗口。
+      keep.add(item.url);
+      if (i != index) preload.add(item.url);
     }
     widget.pool.retainOnly(keep);
-
-    final List<String> preload = <String>[];
-    if (index + 1 < _items.length) preload.add(_items[index + 1].url);
-    if (index - 1 >= 0) preload.add(_items[index - 1].url);
     widget.pool.preload(preload);
 
-    final VideoPlayerEntry entry = widget.pool.entryFor(_items[index].url);
+    final FeedItem current = _items[index];
+    if (current.isImage) return; // 图片：无需起播。
+
+    final VideoPlayerEntry entry =
+        widget.pool.entryFor(current.url, live: current.isLive);
     unawaited(
       entry.ensureInitialized().then((_) {
         if (!mounted || !widget.active || _currentIndex != index) return;
-        if (resume) unawaited(entry.replay());
+        if (resume) {
+          // 直播不支持 seek，只 play；点播则回到开头重新播放。
+          unawaited(current.isLive ? entry.play() : entry.replay());
+        }
       }),
     );
   }
 
   void _toggleLike(int index) {
-    final VideoModel v = _items[index];
+    final FeedItem v = _items[index];
+    final bool nextLiked = !v.liked;
     _items[index] = v.copyWith(
-      liked: !v.liked,
+      liked: nextLiked,
       likeCount: v.likeCount + (v.liked ? -1 : 1),
     );
+    logEvent('like_toggle', <String, dynamic>{
+      ..._trackParams(v, index),
+      'liked': nextLiked,
+    });
     setState(() {});
   }
 
   void _doubleTapLike(int index) {
-    final VideoModel v = _items[index];
+    final FeedItem v = _items[index];
     if (v.liked) return; // 双击只点赞，不取消。
     _items[index] = v.copyWith(liked: true, likeCount: v.likeCount + 1);
+    logEvent('like_double', _trackParams(v, index));
     setState(() {});
   }
 
   void _toggleFollow(int index) {
-    final VideoModel v = _items[index];
-    _items[index] = v.copyWith(followed: !v.followed);
+    final FeedItem v = _items[index];
+    final bool nextFollowed = !v.followed;
+    _items[index] = v.copyWith(followed: nextFollowed);
+    logEvent('follow_toggle', <String, dynamic>{
+      ..._trackParams(v, index),
+      'followed': nextFollowed,
+    });
     setState(() {});
   }
 
@@ -308,20 +345,75 @@ class FeedTabViewState extends State<FeedTabView>
         itemCount: _items.length,
         onPageChanged: _onPageChanged,
         itemBuilder: (BuildContext context, int index) {
-          final VideoModel video = _items[index];
+          final FeedItem item = _items[index];
+          final bool isCurrent = widget.active && index == _currentIndex;
+
+          // 评论 / 分享 / 查看详情：统一在此埋点，再转交上层回调。
+          void onComment() {
+            logEvent('comment_click', _trackParams(item, index));
+            widget.onComment?.call();
+          }
+
+          void onShare() {
+            logEvent('share_click', _trackParams(item, index));
+            widget.onShare?.call();
+          }
+
+          void onAction() {
+            logEvent('image_detail_click', <String, dynamic>{
+              ..._trackParams(item, index),
+              'action_url': item.actionUrl,
+            });
+            widget.onShare?.call();
+          }
+
+          // 图片类型：无播放器，走独立的全屏图片渲染。
+          // 整屏单击仅埋点，不进入详情页。
+          if (item.isImage) {
+            return ImageFeedItem(
+              key: ValueKey<String>(item.id),
+              item: item,
+              active: isCurrent,
+              onLike: () => _toggleLike(index),
+              onDoubleLike: () => _doubleTapLike(index),
+              onFollow: () => _toggleFollow(index),
+              onComment: onComment,
+              onShare: onShare,
+              onAction: onAction,
+              onCellTap: () {
+                logEvent('image_cell_click', _trackParams(item, index));
+              },
+            );
+          }
+
+          // 直播：整屏单击进入直播页（占位页，仅返回按钮）。
+          void onOpenLive() {
+            logEvent('live_cell_click', _trackParams(item, index));
+            unawaited(
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => LivePage(item: item),
+                ),
+              ),
+            );
+          }
+
+          // 视频 / 直播：共用播放器组件，直播额外标记 live 以隐藏进度条。
+          // 视频单击=暂停/播放；直播单击=进入直播页。
           return ShortVideoItem(
-            key: ValueKey<String>(video.id),
-            video: video,
-            entry: widget.pool.entryFor(video.url),
-            active: widget.active && index == _currentIndex,
+            key: ValueKey<String>(item.id),
+            item: item,
+            entry: widget.pool.entryFor(item.url, live: item.isLive),
+            active: isCurrent,
             muted: widget.muted,
             showLoadingMore: _loadingMore && index == _items.length - 1,
             onLike: () => _toggleLike(index),
             onDoubleLike: () => _doubleTapLike(index),
             onFollow: () => _toggleFollow(index),
-            onComment: widget.onComment,
-            onShare: widget.onShare,
+            onComment: onComment,
+            onShare: onShare,
             onToggleMute: widget.onToggleMute,
+            onOpenLive: item.isLive ? onOpenLive : null,
           );
         },
       ),

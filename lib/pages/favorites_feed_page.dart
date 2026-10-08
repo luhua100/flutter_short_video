@@ -3,8 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../data/video_repository.dart';
-import '../models/video_model.dart';
+import '../models/feed_item.dart';
 import '../player/video_player_pool.dart';
+import '../widgets/sheets.dart';
 import 'feed_tab_view.dart';
 
 /// 从「个人中心 - 收藏列表」点进来时的全屏播放页。
@@ -32,8 +33,8 @@ class FavoritesFeedPage extends StatefulWidget {
     this.channel = '收藏',
   });
 
-  /// 列表页已加载的收藏视频（分页累积的那一批）。
-  final List<VideoModel> initialItems;
+  /// 列表页已加载的收藏内容（分页累积的那一批，可能含视频/直播/图片）。
+  final List<FeedItem> initialItems;
 
   /// 点击进入的视频下标（0 基）。
   final int initialIndex;
@@ -102,8 +103,8 @@ class _FavoritesFeedPageState extends State<FavoritesFeedPage>
               initialIndex: widget.initialIndex,
               initialItems: widget.initialItems,
               onToggleMute: (bool value) => unawaited(_setMuted(value)),
-              onComment: () {}, // TODO: 接入真实评论弹层
-              onShare: () {}, // TODO: 接入真实分享弹层
+              onComment: () => showCommentSheet(context),
+              onShare: () => showShareSheet(context),
             ),
           ),
           Positioned(

@@ -3,23 +3,25 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
-import '../models/video_model.dart';
+import '../models/feed_item.dart';
 import '../player/video_player_pool.dart';
+import '../utils/logger.dart';
 import 'video_progress_bar.dart';
 import 'video_side_actions.dart';
 
-/// 信息流中的一屏。
+/// 信息流中的一屏（视频或直播）。
 ///
 /// 与旧实现的差异（也是体验问题的主因）：
 /// 1. 不再在播放回调里 setState 整屏，进度相关 UI 交给 ValueListenableBuilder；
 /// 2. 首帧出画前显示封面，消除滑动后的黑屏；
 /// 3. 有明确的加载失败态与重试入口，不再永远转圈；
 /// 4. 布局基于安全区与约束，不再硬编码偏移量；
-/// 5. 支持单击暂停、双击点赞、横拖进度。
+/// 5. 支持单击暂停、双击点赞、横拖进度；
+/// 6. 直播类型隐藏进度条、展示「直播中」标记与在线人数。
 class ShortVideoItem extends StatefulWidget {
   const ShortVideoItem({
     super.key,
-    required this.video,
+    required this.item,
     required this.entry,
     required this.active,
     required this.muted,
@@ -30,9 +32,10 @@ class ShortVideoItem extends StatefulWidget {
     this.onShare,
     this.onFollow,
     this.onToggleMute,
+    this.onOpenLive,
   });
 
-  final VideoModel video;
+  final FeedItem item;
 
   /// 来自播放器池的复用单元，切屏不重新下载。
   final VideoPlayerEntry entry;
@@ -53,6 +56,10 @@ class ShortVideoItem extends StatefulWidget {
   final VoidCallback? onShare;
   final VoidCallback? onFollow;
   final ValueChanged<bool>? onToggleMute;
+
+  /// 直播场景：点击整个 cell 进入直播页（替代默认的暂停/播放手势）。
+  /// 视频类型不传此回调，仍由 _handleTap 走暂停/播放。
+  final VoidCallback? onOpenLive;
 
   @override
   State<ShortVideoItem> createState() => _ShortVideoItemState();
@@ -99,15 +106,29 @@ class _ShortVideoItemState extends State<ShortVideoItem> {
   void _togglePlay() {
     final VideoPlayerController? controller = widget.entry.controller;
     if (controller == null || !controller.value.isInitialized) return;
+    final bool willPlay = !controller.value.isPlaying;
     if (controller.value.isPlaying) {
       unawaited(widget.entry.pause());
     } else {
       unawaited(widget.entry.play());
     }
     setState(() {});
+    logEvent('play_toggle', <String, dynamic>{
+      'item_id': widget.item.id,
+      'type': widget.item.type.name,
+      'playing': willPlay,
+    });
   }
 
   void _handleTap() {
+    // 直播：整屏单击进入直播页；双击仍走点赞（_handleDoubleTap 会取消此 timer）。
+    if (widget.item.isLive && widget.onOpenLive != null) {
+      _tapTimer?.cancel();
+      _tapTimer = Timer(const Duration(milliseconds: 260), () {
+        if (mounted) widget.onOpenLive?.call();
+      });
+      return;
+    }
     _tapTimer?.cancel();
     _tapTimer = Timer(const Duration(milliseconds: 260), () {
       if (mounted) _togglePlay();
@@ -147,7 +168,8 @@ class _ShortVideoItemState extends State<ShortVideoItem> {
         _buildGestureLayer(),
         _buildBottomInfo(bottomPadding),
         _buildSideActions(bottomPadding),
-        _buildProgress(bottomPadding),
+        // 直播不支持 seek，隐藏进度条。
+        if (!widget.item.isLive) _buildProgress(bottomPadding),
         _buildStatusLayer(),
         if (widget.showLoadingMore) _buildLoadingMore(bottomPadding),
         ..._bursts.map(
@@ -188,10 +210,10 @@ class _ShortVideoItemState extends State<ShortVideoItem> {
     return SizedBox.expand(
       child: ColoredBox(
         color: const Color(0xFF101010),
-        child: widget.video.coverUrl.isEmpty
+        child: widget.item.posterUrl.isEmpty
             ? null
             : Image.network(
-                widget.video.coverUrl,
+                widget.item.posterUrl,
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => const SizedBox.expand(),
               ),
@@ -234,7 +256,8 @@ class _ShortVideoItemState extends State<ShortVideoItem> {
   }
 
   Widget _buildBottomInfo(double bottomPadding) {
-    final VideoModel video = widget.video;
+    final FeedItem video = widget.item;
+    final bool isLive = video.isLive;
     return Positioned(
       left: 16,
       right: 84,
@@ -243,6 +266,46 @@ class _ShortVideoItemState extends State<ShortVideoItem> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
+          if (isLive)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF2C55),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Icon(Icons.live_tv, size: 12, color: Colors.white),
+                        SizedBox(width: 3),
+                        Text('直播中',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${formatCount(video.viewerCount)}人在线',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      shadows: <Shadow>[
+                        Shadow(blurRadius: 4, color: Colors.black54)
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Text(
             video.authorName,
             style: const TextStyle(
@@ -254,7 +317,13 @@ class _ShortVideoItemState extends State<ShortVideoItem> {
           ),
           const SizedBox(height: 6),
           GestureDetector(
-            onTap: () => setState(() => _expanded = !_expanded),
+            onTap: () {
+              setState(() => _expanded = !_expanded);
+              logEvent('desc_toggle', <String, dynamic>{
+                'item_id': widget.item.id,
+                'expanded': _expanded,
+              });
+            },
             child: Text(
               video.desc,
               maxLines: _expanded ? 8 : 2,
@@ -296,7 +365,7 @@ class _ShortVideoItemState extends State<ShortVideoItem> {
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           VideoSideActions(
-            video: widget.video,
+            item: widget.item,
             spinning: widget.active,
             onLike: widget.onLike ?? () {},
             onComment: widget.onComment ?? () {},
@@ -305,7 +374,11 @@ class _ShortVideoItemState extends State<ShortVideoItem> {
           ),
           const SizedBox(height: 14),
           GestureDetector(
-            onTap: () => widget.onToggleMute?.call(!widget.muted),
+            onTap: () {
+              final bool next = !widget.muted;
+              logEvent('mute_toggle', <String, dynamic>{'muted': next});
+              widget.onToggleMute?.call(next);
+            },
             child: Icon(
               widget.muted ? Icons.volume_off : Icons.volume_up,
               size: 24,

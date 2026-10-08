@@ -31,20 +31,24 @@
 lib/
 ├── main.dart                     # 入口：MaterialApp（深色主题，红种子色）
 ├── models/
-│   └── video_model.dart          # 数据模型 + fromJson 容错 + formatCount
+│   └── feed_item.dart            # 统一内容模型（视频/直播/图片）+ fromJson 容错 + formatCount
 ├── data/
 │   └── video_repository.dart     # 分页 / 刷新数据层（模拟网络，可替换为真实接口）
 ├── player/
-│   └── video_player_pool.dart    # 播放器池：复用 / 预加载 / LRU 释放
+│   └── video_player_pool.dart    # 播放器池：复用 / 预加载 / LRU 释放（含直播不 seek）
 ├── widgets/
-│   ├── short_video_item.dart     # 单屏：视频层 + 手势 + 右侧栏 + 进度条
-│   ├── video_progress_bar.dart   # 可拖拽进度条
+│   ├── short_video_item.dart     # 单屏：视频/直播 层 + 手势 + 右侧栏 + 进度条
+│   ├── image_feed_item.dart      # 单屏：宣传图全屏 + 查看详情 CTA
+│   ├── video_progress_bar.dart   # 可拖拽进度条（直播隐藏）
 │   └── video_side_actions.dart   # 右侧操作栏（头像/点赞/评论/分享/音乐）
 └── pages/
-    ├── short_video_feed_page.dart# 首页：双频道 Tab + 静音 + 生命周期
-    └── feed_tab_view.dart        # 单频道信息流：播放窗口调度 / 刷新 / 加载更多
+    ├── short_video_feed_page.dart# 首页：双频道 Tab + 静音 + 生命周期 + 个人中心入口
+    ├── feed_tab_view.dart        # 单频道信息流：按类型分派渲染 / 播放窗口调度 / 刷新 / 加载更多
+    ├── favorites_list_page.dart  # 收藏列表页（分页网格，点进去任意位置播放）
+    ├── favorites_feed_page.dart  # 收藏全屏播放页
+    └── personal_center_page.dart # 个人中心：我的收藏入口
 test/
-└── video_model_test.dart         # 数据模型解析单测
+└── feed_item_test.dart          # 内容模型解析单测（视频/直播/图片）
 ```
 
 ## 架构示意图
@@ -102,34 +106,46 @@ flutter run            # 真机 / 模拟器，iOS 与 Android 均支持
 
 # 校验
 flutter analyze        # 应无告警
-flutter test           # video_model 解析单测
+flutter test           # feed_item 解析单测
 ```
 
 > **Android 网络权限**：`INTERNET` 已写入 `android/app/src/main/AndroidManifest.xml`（初版只写在 debug manifest，导致 release 包视频加载失败）。
 
 ## 后端对接约定
 
-`VideoRepository` 当前为模拟数据，接入真实接口时让后端按 `VideoModel.fromJson` 下发字段即可。`fromJson` 已做类型容错（数字可能是 int / String / num，布尔可能是 `true` / `1` / `"1"`），不会因字段类型漂移直接白屏。
+`VideoRepository` 当前为模拟数据，接入真实接口时让后端按 `FeedItem.fromJson` 下发字段即可。`fromJson` 已做类型容错（数字可能是 int / String / num，布尔可能是 `true` / `1` / `"1"`），不会因字段类型漂移直接白屏。
+
+> **同一信息流混合多形态**：每条内容用 `type` 字段区分 `video` / `live` / `image`，UI 按类型分别渲染（视频/直播走播放器池，图片走全屏展示）。后端无需分接口，一条列表即可混合下发。
+>
+> **整屏点击行为**（信息流里点整个 cell）：
+> - 视频：单击暂停 / 再单击播放（不变）。
+> - 直播：单击进入直播页（`lib/pages/live_page.dart`，当前为占位页，仅含返回按钮 + 基础展示，真实直播能力后续接入）。
+> - 图片：单击仅埋点 `image_cell_click`，不入详情页；「查看详情」按钮仍走 `image_detail_click`。
 
 ### 字段表
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `id` | String | 是 | 视频唯一标识，用作列表 `ValueKey` |
-| `url` | String | 是 | 视频播放地址（网络地址） |
+| `type` | String | 是 | 内容形态：`video` / `live` / `image`，缺省按 `video` 处理 |
+| `id` | String | 是 | 内容唯一标识，用作列表 `ValueKey` |
+| `url` | String | 否* | 视频/直播播放地址；直播通常是 `.m3u8` HLS 流 |
 | `coverUrl` | String | 否* | 首帧封面图，消除滑动后的黑屏（**强烈建议下发**） |
-| `desc` | String | 否 | 视频描述文案 |
+| `imageUrl` | String | 否* | 图片类型主图（宣传图/海报）；为空回退到 `url` |
+| `title` | String | 否 | 图片类型标题（如活动主题） |
+| `actionUrl` | String | 否 | 图片/直播点击跳转地址（落地页 / H5） |
+| `desc` | String | 否 | 内容描述文案 |
 | `authorName` | String | 否 | 作者昵称 |
 | `authorAvatar` | String | 否 | 作者头像地址 |
 | `musicName` | String | 否 | 背景音乐 / BGM 名称 |
 | `likeCount` | int | 否 | 点赞数，UI 用 `formatCount` 格式化为「1.2w」 |
 | `commentCount` | int | 否 | 评论数 |
 | `shareCount` | int | 否 | 分享数 |
+| `viewerCount` | int | 否 | 直播在线人数（仅 live） |
 | `aspectRatio` | double | 否* | 宽 / 高（如 `0.5625` 表示 9:16），避免首帧布局抖动（**强烈建议下发**） |
 | `liked` | bool | 否 | 当前用户是否已赞 |
 | `followed` | bool | 否 | 当前用户是否已关注作者 |
 
-> 带 `*` 的字段虽非必填，但**不下发会明显拉低体验**：缺 `coverUrl` 滑入即黑屏，缺 `aspectRatio` 首帧尺寸跳变导致整屏抖动。
+> 带 `*` 的字段虽非必填，但**不下发会明显拉低体验**：缺 `coverUrl` 滑入即黑屏，缺 `aspectRatio` 首帧尺寸跳变导致整屏抖动；`image` 类型则需 `imageUrl` 才有图可展示。
 
 ### 单条视频示例 JSON
 
@@ -171,14 +187,14 @@ flutter test           # video_model 解析单测
 ```dart
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../models/video_model.dart';
+import '../models/feed_item.dart';
 
 class VideoRepository {
   VideoRepository({this.pageSize = 8, this.baseUrl = 'https://api.example.com'});
   final int pageSize;
   final String baseUrl;
 
-  Future<List<VideoModel>> fetchFeed({
+  Future<List<FeedItem>> fetchFeed({
     required String channel,
     required int page,
     int salt = 0,
@@ -194,9 +210,10 @@ class VideoRepository {
       throw Exception('拉取信息流失败：${res.statusCode}');
     }
     final List<dynamic> list = jsonDecode(res.body) as List<dynamic>;
-    // fromJson 已做类型容错，后端字段类型漂移也不会直接白屏。
+    // fromJson 已做类型容错，后端字段类型漂移也不会直接白屏；
+    // 后端在同一条记录里用 type 区分 video/live/image，前端按类型渲染。
     return list
-        .map((e) => VideoModel.fromJson(e as Map<String, dynamic>))
+        .map((e) => FeedItem.fromJson(e as Map<String, dynamic>))
         .toList(growable: false);
   }
 }
@@ -208,7 +225,7 @@ class VideoRepository {
 
 ```dart
 abstract class VideoFeedSource {
-  Future<List<VideoModel>> fetchFeed({
+  Future<List<FeedItem>> fetchFeed({
     required String channel,
     required int page,
     int salt = 0,
@@ -224,4 +241,35 @@ class HttpVideoRepository implements VideoFeedSource {
 ```
 
 > 采用方式二时，记得把 `feed_tab_view.dart` 中 `repository` 的类型从 `VideoRepository` 改成 `VideoFeedSource`。
+
+## 埋点 / 日志
+
+`lib/utils/logger.dart` 提供轻量埋点工具，所有 item 的点击事件均已接入，便于统计曝光、互动与留存：
+
+```dart
+logEvent('like_toggle', {'item_id': item.id, 'type': item.type.name, 'liked': true});
+```
+
+- 默认实现把事件 `debugPrint` 到控制台（`[track] 事件名 {...}`），本地联调直接可见；
+- 接入真实埋点（神策 / 火山 / 自研上报）时，只需替换 `Logger.instance.sink`，业务侧调用方式不变。
+
+已埋点的 item 事件：
+
+| 事件 | 触发位置 | 关键参数 |
+| --- | --- | --- |
+| `feed_item_impression` | 划到某一条（曝光） | item_id / type / channel / index / page |
+| `play_toggle` | 单击暂停/播放 | item_id / type / playing |
+| `like_toggle` | 点赞/取消 | item_id / type / liked |
+| `like_double` | 双击点赞 | item_id / type |
+| `follow_toggle` | 关注/取关 | item_id / type / followed |
+| `comment_click` | 评论 | item_id / type / index |
+| `share_click` | 分享 | item_id / type / index |
+| `image_detail_click` | 图片「查看详情」 | item_id / type / action_url |
+| `live_cell_click` | 直播整屏点击 → 进入直播页 | item_id / type / channel / index |
+| `image_cell_click` | 图片整屏单击（仅埋点，不跳页） | item_id / type / channel / index |
+| `mute_toggle` | 静音切换 | muted |
+| `desc_toggle` | 展开/收起文案 | item_id / expanded |
+| `favorite_open` | 从收藏列表/个人中心点进全屏 | item_id / type / index / from |
+| `open_all_favorites` | 个人中心「查看全部」 | from |
+
 
