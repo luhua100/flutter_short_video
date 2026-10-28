@@ -2,6 +2,24 @@
 
 跨平台 Flutter 短视频信息流（抖音式竖屏滑动）实现方案。支持「关注 / 推荐」双频道、竖向全屏滑动切换、播放器复用与滑动预加载、下拉刷新 / 上拉加载更多、点赞 / 双击炸心 / 关注 / 评论 / 分享等完整交互。
 
+## 运行截图
+
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="https://climby-cn.oss-cn-hangzhou.aliyuncs.com/repository/dy_c_1.png" width="240" alt="推荐频道信息流：竖屏全屏播放、右侧操作栏、底部文案与可拖拽进度条" /><br/>
+      <sub><b>推荐频道信息流</b><br/>全屏竖滑 · 右侧操作栏 · 可拖拽进度条</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="https://climby-cn.oss-cn-hangzhou.aliyuncs.com/repository/dy_c_2.png" width="240" alt="直播信息流：直播中标、在线人数、居中「点击进入直播间」胶囊入口" /><br/>
+      <sub><b>直播间卡片</b><br/>直播中标 · 在线人数 · 胶囊入口（前置音量条动画）</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="https://climby-cn.oss-cn-hangzhou.aliyuncs.com/repository/dy_c_3.png" width="240" alt="个人中心：账号信息与我的收藏九宫格，点击任意位置进入全屏播放" /><br/>
+      <sub><b>个人中心 · 我的收藏</b><br/>收藏九宫格 · 点击任意位置续播</sub>
+    </td>
+  </tr>
+</table>
 
 ## 功能特性
 
@@ -13,6 +31,7 @@
 - 默认静音进入（`mixWithOthers` 不抢音频焦点），可一键切换。
 - 局部刷新：进度 / 播放态走 `ValueListenableBuilder`，不再每帧 `setState` 重建整屏。
 - 交互：单击暂停、双击点赞 + 炸心动画、右侧操作栏（头像 / 点赞 / 评论 / 分享 / 音乐）、可拖拽进度条、评论与分享底部弹层。
+- 混合内容：同一信息流按 `type` 混合渲染视频 / 直播 / 图片；直播底部居中「点击进入直播间」胶囊（前置音量条跳动动画，仅当前屏播放动画）。
 - 生命周期：切后台自动暂停，回前台恢复；切频道暂停非可见流。
 - 适配：`SafeArea` 适配刘海屏与底部手势区；封面占位消除黑屏；服务端下发宽高比避免首帧布局抖动。
 
@@ -37,18 +56,21 @@ lib/
 ├── player/
 │   └── video_player_pool.dart    # 播放器池：复用 / 预加载 / LRU 释放（含直播不 seek）
 ├── widgets/
-│   ├── short_video_item.dart     # 单屏：视频/直播 层 + 手势 + 右侧栏 + 进度条
+│   ├── short_video_item.dart     # 单屏：视频/直播 层 + 手势 + 右侧栏 + 进度条 + 直播入口胶囊
+│   ├── live_entry_capsule.dart   # 直播入口胶囊 + 音量条跳动动画（单 AnimationController 驱动）
 │   ├── image_feed_item.dart      # 单屏：宣传图全屏 + 查看详情 CTA
 │   ├── video_progress_bar.dart   # 可拖拽进度条（直播隐藏）
 │   └── video_side_actions.dart   # 右侧操作栏（头像/点赞/评论/分享/音乐）
 └── pages/
     ├── short_video_feed_page.dart# 首页：双频道 Tab + 静音 + 生命周期 + 个人中心入口
     ├── feed_tab_view.dart        # 单频道信息流：按类型分派渲染 / 播放窗口调度 / 刷新 / 加载更多
+    ├── live_page.dart            # 直播页（占位：返回 + 基础展示，真实直播能力待接入）
     ├── favorites_list_page.dart  # 收藏列表页（分页网格，点进去任意位置播放）
     ├── favorites_feed_page.dart  # 收藏全屏播放页
     └── personal_center_page.dart # 个人中心：我的收藏入口
 test/
-└── feed_item_test.dart          # 内容模型解析单测（视频/直播/图片）
+├── feed_item_test.dart          # 内容模型解析单测（视频/直播/图片）
+└── live_entry_capsule_test.dart # 直播入口胶囊：渲染/动画/点击/窄屏不溢出
 ```
 
 ## 架构示意图
@@ -106,8 +128,10 @@ flutter run            # 真机 / 模拟器，iOS 与 Android 均支持
 
 # 校验
 flutter analyze        # 应无告警
-flutter test           # feed_item 解析单测
+flutter test           # 内容模型解析 + 直播胶囊组件单测
 ```
+
+> **测试跑不起来？** 若本机设置了 `HTTP_PROXY` / `HTTPS_PROXY` 指向本地代理，`flutter test` 会报 `Invalid WebSocket upgrade request`（flutter_tester 起的本地 WebSocket 被代理截走）。去掉代理即可：`env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy flutter test`。
 
 > **Android 网络权限**：`INTERNET` 已写入 `android/app/src/main/AndroidManifest.xml`（初版只写在 debug manifest，导致 release 包视频加载失败）。
 
@@ -266,6 +290,7 @@ logEvent('like_toggle', {'item_id': item.id, 'type': item.type.name, 'liked': tr
 | `share_click` | 分享 | item_id / type / index |
 | `image_detail_click` | 图片「查看详情」 | item_id / type / action_url |
 | `live_cell_click` | 直播整屏点击 → 进入直播页 | item_id / type / channel / index |
+| `live_capsule_click` | 点「点击进入直播间」胶囊 | item_id / viewer_count |
 | `image_cell_click` | 图片整屏单击（仅埋点，不跳页） | item_id / type / channel / index |
 | `mute_toggle` | 静音切换 | muted |
 | `desc_toggle` | 展开/收起文案 | item_id / expanded |

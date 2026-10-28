@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 import '../models/feed_item.dart';
 import '../player/video_player_pool.dart';
 import '../utils/logger.dart';
+import 'live_entry_capsule.dart';
 import 'video_progress_bar.dart';
 import 'video_side_actions.dart';
 
@@ -17,7 +18,8 @@ import 'video_side_actions.dart';
 /// 3. 有明确的加载失败态与重试入口，不再永远转圈；
 /// 4. 布局基于安全区与约束，不再硬编码偏移量；
 /// 5. 支持单击暂停、双击点赞、横拖进度；
-/// 6. 直播类型隐藏进度条、展示「直播中」标记与在线人数。
+/// 6. 直播类型隐藏进度条、展示「直播中」标记与在线人数，
+///    并在文字块上方居中放「点击进入直播间」胶囊（前置音量条跳动动画）。
 class ShortVideoItem extends StatefulWidget {
   const ShortVideoItem({
     super.key,
@@ -259,97 +261,133 @@ class _ShortVideoItemState extends State<ShortVideoItem> {
     final FeedItem video = widget.item;
     final bool isLive = video.isLive;
     return Positioned(
+      // 左侧留白给文字，右侧留白给竖排操作按钮；整块从底部往上生长，
+      // 描述展开时向上推，不会盖住右侧按钮，也不会盖住上面的直播入口胶囊。
       left: 16,
-      right: 84,
-      bottom: bottomPadding + 26,
+      right: 16,
+      bottom: bottomPadding + 22,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          if (isLive)
+          // 直播专属：居中胶囊入口，点击直接进直播间。
+          // 放在文字块上方（而不是塞进文字里），既醒目又不会挤走作者/描述。
+          if (isLive && widget.onOpenLive != null)
             Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFF2C55),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Row(
+              padding: const EdgeInsets.only(bottom: 18),
+              child: Center(
+                child: LiveEntryCapsule(
+                  // 只有当前可见的一屏才跑动画，相邻预加载页不空转。
+                  animating: widget.active,
+                  onTap: () {
+                    logEvent('live_capsule_click', <String, dynamic>{
+                      'item_id': video.id,
+                      'viewer_count': video.viewerCount,
+                    });
+                    widget.onOpenLive!.call();
+                  },
+                ),
+              ),
+            ),
+          // 文字块保持原来的右边距（84 - 16 = 68），不被右侧按钮压到。
+          Padding(
+            padding: const EdgeInsets.only(right: 68),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                if (isLive)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
-                        Icon(Icons.live_tv, size: 12, color: Colors.white),
-                        SizedBox(width: 3),
-                        Text('直播中',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600)),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFF2C55),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              Icon(Icons.live_tv, size: 12, color: Colors.white),
+                              SizedBox(width: 3),
+                              Text('直播中',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600)),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${formatCount(video.viewerCount)}人在线',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            shadows: <Shadow>[
+                              Shadow(blurRadius: 4, color: Colors.black54)
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '${formatCount(video.viewerCount)}人在线',
+                Text(
+                  video.authorName,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    shadows: <Shadow>[
+                      Shadow(blurRadius: 4, color: Colors.black54)
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                GestureDetector(
+                  onTap: () {
+                    setState(() => _expanded = !_expanded);
+                    logEvent('desc_toggle', <String, dynamic>{
+                      'item_id': widget.item.id,
+                      'expanded': _expanded,
+                    });
+                  },
+                  child: Text(
+                    video.desc,
+                    maxLines: _expanded ? 8 : 2,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 12,
+                      fontSize: 14,
+                      height: 1.35,
                       shadows: <Shadow>[
                         Shadow(blurRadius: 4, color: Colors.black54)
                       ],
                     ),
                   ),
-                ],
-              ),
-            ),
-          Text(
-            video.authorName,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              shadows: <Shadow>[Shadow(blurRadius: 4, color: Colors.black54)],
-            ),
-          ),
-          const SizedBox(height: 6),
-          GestureDetector(
-            onTap: () {
-              setState(() => _expanded = !_expanded);
-              logEvent('desc_toggle', <String, dynamic>{
-                'item_id': widget.item.id,
-                'expanded': _expanded,
-              });
-            },
-            child: Text(
-              video.desc,
-              maxLines: _expanded ? 8 : 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 14,
-                height: 1.35,
-                shadows: <Shadow>[Shadow(blurRadius: 4, color: Colors.black54)],
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: <Widget>[
-              const Icon(Icons.music_note, size: 14, color: Colors.white),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  video.musicName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
                 ),
-              ),
-            ],
+                const SizedBox(height: 8),
+                Row(
+                  children: <Widget>[
+                    const Icon(Icons.music_note, size: 14, color: Colors.white),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        video.musicName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -411,8 +449,8 @@ class _ShortVideoItemState extends State<ShortVideoItem> {
           children: <Widget>[
             const Icon(Icons.error_outline, color: Colors.white70, size: 36),
             const SizedBox(height: 8),
-            const Text(
-              '视频加载失败',
+             Text(
+             entry.live ? '拉流加载失败' : '视频加载失败',
               style: TextStyle(color: Colors.white70, fontSize: 13),
             ),
             const SizedBox(height: 12),
